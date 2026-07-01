@@ -1,15 +1,23 @@
 # Learning State
 
 - **Current Phase:** Phase 1 - NestJS Fundamentals
-- **Current Lesson:** 1.1 - Bootstrapping & anatomía del proyecto (en curso: preparando entorno + scaffolding)
+- **Current Lesson:** 1.1 ✅ COMPLETADA. Siguiente: 1.2 - Módulos a fondo (@Module, encapsulación).
 - **Approved Syllabus (Phase 1):**
   - 1.1 Bootstrapping y anatomía (CLI, main.ts, NestFactory, AppModule)
   - 1.2 Módulos (@Module: imports/controllers/providers/exports, encapsulación)
   - 1.3 Controladores (@Controller, routing, @Param/@Query/@Body, HttpCode)
   - 1.4 Providers e Inyección de Dependencias (@Injectable, DI por constructor, scopes)
   - 1.5 Cierre e integración (custom providers, CRUD Cards en memoria)
-- **Completed Milestones:** None.
+- **Completed Milestones:**
+  - PR #1 mergeado a `dev`: config del tutor (`CLAUDE.md`) + sistema de contexto (`.context/`).
+  - Entorno verificado: Node v24.18.0 / npm 11.16.0.
+  - Proyecto NestJS scaffoldeado con `nest new . --skip-git --package-manager npm` (en rama `feat/nestjs-scaffolding`, aún sin commitear/PR).
+  - `.gitignore` creado (faltaba por `--skip-git`; `node_modules/` ya ignorado).
+  - Teoría 1.1 explicada: circuito main→module→controller→service + rol de `@Injectable()` y símil con la DI de .NET. Ver `learning-notes.md`.
+  - Server arrancado OK (`npm run start:dev`): "Hello World!" en localhost:3000, logs de bootstrap leídos y entendidos. **Lección 1.1 completada.**
 - **Active Decisions / Notes:**
   - Temario Fase 1 aprobado como primera aproximación (se profundiza sobre la marcha).
-  - Rama de trabajo actual: `dev` (qa y dev salen desde main).
+  - Rama de trabajo actual: `feat/nestjs-scaffolding`.
   - Nueva regla en CLAUDE.md: toda explicación/recomendación debe fundamentarse en documentación oficial y citar la fuente.
+  - **Pendiente inmediato:** commit único del scaffolding (`feat: scaffold NestJS project`) + push + PR #2 (`feat/nestjs-scaffolding → dev`).
+  - Nota: el archivo es `CLAUDE.md` (mayúsculas); en Windows es case-insensitive.
