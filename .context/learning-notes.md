@@ -122,3 +122,71 @@ NestJS:  providers:[AppService]     → registro (el "qué")
 - *NestJS Docs → Providers* (@Injectable, contenedor IoC, resolución de dependencias).
 - *TypeScript Handbook → Decorators → Metadata* (emitDecoratorMetadata).
 - *Microsoft Docs → Dependency injection in .NET* (DI del CLR).
+
+---
+
+## Phase 1 · Lesson 1.2 — Módulos a fondo (@Module)
+
+### Concepto central: encapsulación
+Un módulo NO es solo una carpeta de organización: es una **frontera de encapsulación**.
+- **Símil .NET:** módulo ≈ assembly/librería con tipos `internal` vs `public`. Lo que no exportas es como `internal`: existe pero nadie de afuera lo ve.
+
+### Las 4 propiedades de @Module
+```typescript
+@Module({
+  imports:     [],  // otros módulos cuyos exports quiero usar aquí
+  controllers: [],  // los que instancia y expone ESTE módulo
+  providers:   [],  // servicios inyectables, PRIVADOS a este módulo por defecto
+  exports:     [],  // qué de mis providers hago visible a quien me importe
+})
+```
+- `providers` son **privados por defecto**: solo inyectables dentro del propio módulo.
+- `exports`: puerta de salida — para que otro módulo use un provider mío, debo exportarlo.
+- `imports`: puerta de entrada — un módulo importa a otro para acceder a lo que ese otro exporta.
+
+Modelo mental:
+```
+ModuloB:  providers:[ServicioB]  → existe pero PRIVADO
+          exports:[ServicioB]    → ahora visible afuera
+ModuloA:  imports:[ModuloB]      → ModuloA puede inyectar ServicioB
+```
+Error clásico si falta el export en B o el import en A:
+`Nest can't resolve dependencies... Is it exported?`
+
+### Trampa: `import` (TS) vs `imports:` (NestJS)
+Son cosas DISTINTAS aunque se llamen parecido:
+- `import { X } from '...'` → import de **TypeScript/ES Modules** (trae la clase al archivo). JS puro.
+- `imports: [X]` dentro de `@Module` → propiedad de **NestJS** (registra el módulo en el árbol de dependencias).
+Puedes tener una clase importada por TS que NO esté en el array `imports` de NestJS → NestJS no la conocería. El CLI hace ambas al generar; a mano hay que acordarse de las dos.
+
+### Duda resuelta: ¿cómo sabe el CLI a qué módulo asociar un controller/provider generado?
+**NO es por el nombre. Es por la UBICACIÓN en el árbol de carpetas.**
+Al generar (`nest g controller cards`), el CLI:
+1. Decide dónde crea el archivo (`src/cards/cards.controller.ts`).
+2. Sube por el árbol de carpetas buscando el `*.module.ts` más cercano.
+3. Encuentra `src/cards/cards.module.ts` → lo registra ahí (en `controllers: []`).
+
+Prueba de que NO es el nombre: un `dragons.controller.ts` creado dentro de `src/cards/` se registraría en `CardsModule` aunque los nombres no coincidan. **Gana la carpeta, no el nombre.**
+En este caso "coincidió" porque el nombre `cards` definió a la vez la carpeta y el nombre del archivo.
+
+Corolario práctico (clave para Clean Architecture en Fase 2): **la organización de carpetas ES la organización de módulos.** La ubicación física tiene semántica real; no es cosmética.
+
+### Encapsulación aplicada al generar
+El CLI registró `CardsController` en `CardsModule` (NO en `AppModule`). El `AppModule` solo conoce el `CardsModule` completo vía `imports: [CardsModule]`; no sabe de sus controllers internos. Bajo acoplamiento correcto:
+```
+AppModule → imports:[CardsModule] → CardsModule → controllers:[CardsController]
+```
+
+### Comandos usados
+- `nest generate module cards` (o `nest g mo cards`) → crea `cards.module.ts` + actualiza `AppModule` (imports).
+- `nest generate controller cards` (o `nest g co cards`) → crea `cards.controller.ts` + `.spec.ts` (tests Jest, Fase 2) + actualiza `cards.module.ts` (controllers).
+
+### Convención de nombres: PLURAL
+Recursos REST se nombran en plural (`cards`) porque `@Controller('cards')` expone una **colección**:
+`GET /cards` (lista), `GET /cards/:id` (elemento), `POST /cards` (crear). `nest g resource` genera todo en plural por defecto.
+📚 *NestJS Docs → Controllers* (ejemplos con `cats` en plural); *Microsoft REST API Guidelines* (recursos en plural).
+
+### Referencias oficiales (1.2)
+- *NestJS Docs → Modules* (feature modules, encapsulación, imports/exports).
+- *NestJS Docs → CLI → Usage* (generación de archivos, name como ruta, registro en módulo más cercano).
+- *NestJS Docs → Controllers* (routing, convención plural).
