@@ -1,7 +1,7 @@
 # Learning State
 
 - **Current Phase:** Phase 1 - NestJS Fundamentals
-- **Current Lesson:** 1.2 ✅ COMPLETADA. Siguiente: 1.3 - Controladores (routing, @Get/@Post, @Param/@Query/@Body) + conectar CardsService al controller (DI).
+- **Current Lesson:** 1.3 ✅ COMPLETADA. Siguiente: 1.4 - Providers e Inyección de Dependencias (inyectar CardsService en el controller + mover lógica al service + CRUD en memoria).
 - **Approved Syllabus (Phase 1):**
   - 1.1 Bootstrapping y anatomía (CLI, main.ts, NestFactory, AppModule)
   - 1.2 Módulos (@Module: imports/controllers/providers/exports, encapsulación)
@@ -16,9 +16,10 @@
   - Teoría 1.1 explicada: circuito main→module→controller→service + rol de `@Injectable()` y símil con la DI de .NET. Ver `learning-notes.md`.
   - Server arrancado OK (`npm run start:dev`): "Hello World!" en localhost:3000, logs de bootstrap leídos y entendidos. **Lección 1.1 completada.**
   - **Lección 1.2 completada:** feature module `CardsModule` creado pieza por pieza (module + controller + service) en rama `feat/cards-module`. Estructura completa pero funcionalmente vacía. Teoría de módulos/encapsulación en `learning-notes.md`.
+  - **Lección 1.3 completada:** 3 endpoints en `CardsController` (GET /cards, GET /cards/:id, POST /cards) con `@Param`/`@Body`, probados en Postman. Modelo de dominio `Card` rico (enums separados: color/type/rarity/super-type; arrays multicolor/multi-tipo; power/toughness opcionales string; manaValue). Lecciones: DTO vs Entidad (no heredar) y descubrimiento de que el DTO no valida en runtime (→ Pipes en Fase 3). Todo en rama `feat/cards-endpoints`.
 - **Active Decisions / Notes:**
   - Temario Fase 1 aprobado como primera aproximación (se profundiza sobre la marcha).
-  - Rama de trabajo actual: `feat/cards-module`.
+  - Rama de trabajo actual: `feat/cards-endpoints`.
   - Nueva regla en CLAUDE.md: toda explicación/recomendación debe fundamentarse en documentación oficial y citar la fuente.
-  - **Pendiente inmediato:** commit + push + PR #3 (`feat/cards-module → dev`) con la estructura del feature module.
+  - **Pendiente inmediato:** commit + push + PR #4 (`feat/cards-endpoints → dev`) con los endpoints + modelo Card. Luego rama nueva para la Lección 1.4 (DI + CRUD en memoria).
   - Nota: el archivo es `CLAUDE.md` (mayúsculas); en Windows es case-insensitive.
