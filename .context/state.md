@@ -1,7 +1,7 @@
 # Learning State
 
 - **Current Phase:** Phase 1 - NestJS Fundamentals
-- **Current Lesson:** 1.3 ✅ COMPLETADA. Siguiente: 1.4 - Providers e Inyección de Dependencias (inyectar CardsService en el controller + mover lógica al service + CRUD en memoria).
+- **Current Lesson:** 1.4 ✅ COMPLETADA. Siguiente: 1.5 - Cierre e integración de Fase 1 (custom providers, repaso).
 - **Approved Syllabus (Phase 1):**
   - 1.1 Bootstrapping y anatomía (CLI, main.ts, NestFactory, AppModule)
   - 1.2 Módulos (@Module: imports/controllers/providers/exports, encapsulación)
@@ -17,9 +17,11 @@
   - Server arrancado OK (`npm run start:dev`): "Hello World!" en localhost:3000, logs de bootstrap leídos y entendidos. **Lección 1.1 completada.**
   - **Lección 1.2 completada:** feature module `CardsModule` creado pieza por pieza (module + controller + service) en rama `feat/cards-module`. Estructura completa pero funcionalmente vacía. Teoría de módulos/encapsulación en `learning-notes.md`.
   - **Lección 1.3 completada:** 3 endpoints en `CardsController` (GET /cards, GET /cards/:id, POST /cards) con `@Param`/`@Body`, probados en Postman. Modelo de dominio `Card` rico (enums separados: color/type/rarity/super-type; arrays multicolor/multi-tipo; power/toughness opcionales string; manaValue). Lecciones: DTO vs Entidad (no heredar) y descubrimiento de que el DTO no valida en runtime (→ Pipes en Fase 3). Todo en rama `feat/cards-endpoints`.
+  - **Lección 1.4 completada:** DI + CRUD en memoria funcionando end-to-end (probado en Postman: POST 201 con carta enriquecida, GET /cards persiste estado entre requests, GET /:id devuelve una). `CardsService` inyectado por constructor (parameter property `private readonly`). `interface Card` (= DTO + id UUID + auditoría createdAt/By, updatedAt/By opcional) en `src/models/interface/`. Mapeo manual DTO→Card con spread (`{ id, ...dto, createdAt, createdBy }`) dentro del service. Analogía clave con .NET: hoy `CardsService` = capa Handler/negocio; el `push` al array finge el Repository (se separa en Fase 3). Fixes: operador `!` en DTO (`ts(2564)`), `findOne` devuelve `Card | undefined`. Config editor versionada (`.vscode/settings.json`, D-007). Rama `feat/cards-crud`.
 - **Active Decisions / Notes:**
   - Temario Fase 1 aprobado como primera aproximación (se profundiza sobre la marcha).
-  - Rama de trabajo actual: `feat/cards-endpoints`.
+  - Rama de trabajo actual: `feat/cards-crud`.
   - Nueva regla en CLAUDE.md: toda explicación/recomendación debe fundamentarse en documentación oficial y citar la fuente.
-  - **Pendiente inmediato:** commit + push + PR #4 (`feat/cards-endpoints → dev`) con los endpoints + modelo Card. Luego rama nueva para la Lección 1.4 (DI + CRUD en memoria).
+  - Deuda técnica anotada (para Fase 3): DTO/interface no validan en runtime (→ class-validator + ValidationPipe); `@Param('id')` tipado UUID no valida (→ ParseUUIDPipe); `findOne` sin match debe lanzar 404 (NotFoundException); `power`/`toughness` como tipo (`number` vs `string` para `*` de MTG); posible DRY `Card extends CreateCardDto`.
+  - **Pendiente inmediato:** commit + push + PR (`feat/cards-crud → dev`) con el CRUD (service + controller + interface Card + `.vscode/`). Luego Lección 1.5 (cierre/integración Fase 1).
   - Nota: el archivo es `CLAUDE.md` (mayúsculas); en Windows es case-insensitive.

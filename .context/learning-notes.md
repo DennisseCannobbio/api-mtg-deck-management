@@ -271,3 +271,69 @@ Símil .NET exacto:
 Ejemplo: `@IsEnum(CardColor, { each: true })` valida cada elemento de un array. `whitelist: true` rechaza campos no declarados (el `campoInventado`).
 Idea: sin validación el DTO es **documentación**; con validación es un **guardián**. Los decoradores compensan el type erasure inyectando metadatos en runtime.
 📚 *NestJS Docs → Techniques → Validation*.
+
+---
+
+### El operador `!` en DTOs y el error `ts(2564)`
+Al declarar un DTO con propiedades obligatorias (`name: string`), TS lanza:
+> Property 'name' has no initializer and is not definitely assigned in the constructor. **ts(2564)**
+
+**Origen:** NO es Prettier ni ESLint — es el **compilador de TS**, regla `strictPropertyInitialization` (incluida en `strict: true`). Exige que toda propiedad no-opcional se inicialice o se asigne en el constructor.
+
+**Solución elegida:** el operador `!` (definite assignment assertion) → `name!: string;`.
+- Es una **aserción compile-time**: "yo garantizo que se asignará". Silencia el error, no genera JS, desaparece al transpilar.
+- Encaja en DTOs porque quien los rellena es **NestJS al deserializar el body**, no un `new` manual → TS no puede "ver" esa asignación.
+- Las opcionales (`power?`, `toughness?`) NO necesitan `!`: el `?` ya las hace `T | undefined`.
+- ⚠️ Es una promesa tuya, no una garantía del compilador. Seguro en DTOs; peligroso si mientes.
+📚 *TypeScript Handbook → Definite Assignment Assertions* / *tsconfig → strictPropertyInitialization*.
+
+### ¿Existe `[Required]` como en C#? — Dos capas
+1. **TS puro (compile-time):** NO hay equivalente. Los tipos se borran (type erasure). `!` no valida, solo calla al compilador.
+2. **NestJS runtime:** SÍ, vía `class-validator` (`@IsNotEmpty()` ≈ `[Required]`). Persiste en runtime con `reflect-metadata`, igual que los atributos de C# via reflection del CLR. Reservado para **Fase 3**.
+
+---
+
+## Phase 1 · Lesson 1.4 — Providers e Inyección de Dependencias (DI) + CRUD en memoria
+
+### La DI en NestJS (símil .NET exacto)
+El controller **declara** su dependencia por constructor; el contenedor IoC de Nest la **entrega**. Es la "D" de SOLID (Dependency Inversion). No `new CardsService()` (acoplamiento); Nest inyecta la instancia.
+```typescript
+constructor(private readonly cardsService: CardsService) {}
+```
+- **Parameter property**: `private readonly` en el parámetro declara + asigna `this.cardsService` automáticamente (TS lo regala; en C# asignas a mano). `readonly` = no reasignar la dependencia.
+- Poner la clase en `providers: []` del módulo **ES** el registro (= `services.AddScoped<T>()` de .NET). No se toca el módulo si el CLI ya lo puso.
+- Nest "lee" qué inyectar vía `reflect-metadata` (porque TS borra los tipos → por eso `@Injectable()` importa).
+
+| .NET Core | NestJS |
+|---|---|
+| `services.AddScoped<CardsService>()` | clase en `providers: []` |
+| inyección por constructor | idéntico |
+| `IServiceProvider` | contenedor IoC de Nest |
+| Transient / Scoped / Singleton | TRANSIENT / REQUEST / DEFAULT(singleton) |
+📚 *NestJS Docs → Providers*.
+
+### 🔑 Analogía CLAVE: ¿a qué capa corresponde el Service? (confusión resuelta hoy)
+El estudiante pensaba en su stack .NET: `Controller => IHandler => Handler => IRepository => Repository`, donde el **Handler** recibe el DTO y el **Repository** el modelo de DB, y el mapeo cae en el Handler.
+**En NestJS Fase 1 aún NO hay Repository.** `CardsService` hace hoy el papel del **Handler / capa de negocio** → por eso **recibe el DTO y hace el mapeo** (igual que en .NET). El `this.cards.push()` es un **Repository fingido**.
+```
+Controller ──DTO──> CardsService(=Handler) ──mapea──> Card ──push──> array(=Repo fingido)
+```
+**Fase 3:** se extrae `CardsRepository` (con interfaz `ICardsRepository` para inyectar = Repository Pattern, como el `IRepository` de .NET). El service dejará de tocar el array.
+
+### DTO → Entity: el "mapper" manual
+`create(dto: CreateCardDto): Card` construye la Entity añadiendo lo que el DTO NO trae (id, auditoría):
+```typescript
+const cardToCreate: Card = { id: randomUUID(), ...dto, createdAt: new Date(), createdBy: 'System' };
+```
+- El spread `...dto` copia los campos; se antepone `id` y campos de sistema → **razón concreta de que Entity ≠ DTO** (el cliente no manda id ni createdAt).
+- TS **valida el mapeo gratis en compile-time**: si al literal le falta/sobra un campo de `Card`, marca rojo aquí. (En C# con AutoMapper no siempre tienes eso en compile-time.)
+- `interface Card` (no class): contrato de forma puro, cero runtime. `class` se reserva para Fase 2 (métodos de dominio).
+
+### Estado singleton (probado en Postman)
+GET /cards devolvió las cartas creadas en POSTs previos → el array persiste entre requests porque el service es **singleton** (scope DEFAULT = `AddSingleton`). Misma instancia, mismo array vivo.
+
+### Fixes / detalles de la lección
+- `ts(2564)` (`strictPropertyInitialization`) en el DTO → operador `!` (ver notas arriba).
+- `findOne`: `Array.find` devuelve `T | undefined` → el método DEBE tipar `Card | undefined` (TS obliga a decidir el caso "no encontrado"; futuro → 404).
+- `import type { X }`: import solo-de-tipo, se borra al compilar (no genera require). Buena práctica coherente con type erasure.
+- `randomUUID()` de `crypto` (¡con paréntesis!) genera el id.
