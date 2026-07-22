@@ -190,3 +190,84 @@ Recursos REST se nombran en plural (`cards`) porque `@Controller('cards')` expon
 - *NestJS Docs → Modules* (feature modules, encapsulación, imports/exports).
 - *NestJS Docs → CLI → Usage* (generación de archivos, name como ruta, registro en módulo más cercano).
 - *NestJS Docs → Controllers* (routing, convención plural).
+
+---
+
+## Phase 1 · Lesson 1.3 — Controladores (routing) + modelado de dominio Card
+
+### Routing: la ruta se compone en dos niveles
+```typescript
+@Controller('cards')   // prefijo → todas las rutas empiezan con /cards
+@Get()                 // → GET /cards
+@Get(':id')            // → GET /cards/:id
+```
+Prefijo del `@Controller` + path del decorador de método se **concatenan**.
+- **Símil .NET:** `[Route("cards")]` + `[HttpGet]` / `[HttpGet("{id}")]`.
+
+### Decoradores de parámetros (inyectan partes de la request)
+| Decorador | De dónde | Símil .NET |
+|---|---|---|
+| `@Param('id')` | segmento de ruta `/cards/42` | `[FromRoute]` |
+| `@Query('color')` | query string `?color=blue` | `[FromQuery]` |
+| `@Body()` | cuerpo del POST (JSON) | `[FromBody]` |
+
+⚠️ Todo lo que viene de la URL llega como **string** (ej. id "42", no 42). Conversión/validación de tipos = **Pipes** (Fase 3).
+Status por defecto: 200 (201 en `@Post`). Cambiar con `@HttpCode(n)`.
+📚 *NestJS Docs → Controllers → Routing / Route parameters*.
+
+### Dominio MTG: por qué Cards primero
+Jerarquía: **Card** (unidad atómica: name, color, type, manaValue...) → **Deck** (colección de cartas + reglas: tamaño, máx copias, identidad de color). Se construye bottom-up: sin el concepto de Carta no se pueden validar las reglas de Mazo. Las reglas vivirán en el Domain Layer puro (Fase 2).
+
+### Modelado de Card (decisiones tomadas)
+- `color: CardColor[]` y `type: CardType[]` → **arrays**, porque en MTG hay cartas multicolor y multi-tipo ("Artifact Creature"). Fiel al dominio.
+- `superType`, `rarity` → **únicos** (no array): decisión consciente por campo.
+- `power?`/`toughness?` → **opcionales y string**: solo criaturas los tienen (opcional) y pueden ser variables como `*` (string, no number).
+- `manaValue: number` → el **número total** (antes CMC). NO confundir con el *mana cost* detallado `{2}{R}{R}` (notación con símbolos), que se modelaría como objeto complejo → se pospone (evitar over-engineering).
+- Enums separados, un archivo por enum, kebab-case + sufijo `.enum.ts` (convención NestJS): `card-color`, `card-type`, `card-rarity`, `card-super-type`.
+
+### Duda resuelta: enum vs alternativas en TS
+El `enum` es **correcto e idiomático** para DTOs con validación NestJS (`@IsEnum()` en Fase 3). Alternativas conocidas para cuando se quiera profundizar:
+- **Union de literales** `type X = 'A' | 'B'`: cero código en runtime, muy TS, pero no iterable en runtime.
+- **`as const` object**: iterable + tipo estricto, sin las rarezas del enum, pero más verboso.
+- **Nota:** los `enum` de TS **generan código JS en runtime** (no son solo tipos); por eso algunos equipos los evitan. Para este proyecto se mantiene `enum` (natural viniendo de .NET, y encaja con NestJS/class-validator).
+📚 *TypeScript Handbook → Enums*.
+
+### Duda resuelta (CLAVE): ¿el DTO debe heredar de la entidad Card?
+**NO heredar el DTO de la entidad.** DTO y Modelo/Entidad son conceptualmente distintos y tienen **razones distintas para cambiar**:
+| | Entidad `Card` | `CreateCardDto` |
+|---|---|---|
+| Qué es | dominio/persistencia | contrato HTTP de entrada |
+| Tiene `id`? | sí (existe en DB) | no (aún no existe al crear) |
+| Cambia cuando | cambia el dominio/DB | cambia el contrato de la API |
+Heredar acopla la capa API con la de dominio (anti-patrón sutil, mismo debate que "ViewModel hereda de Entity" en .NET → la respuesta canónica en Clean Architecture es NO).
+
+Formas correctas de evitar duplicación (Fase 3):
+- **DTO deriva de DTO** con utilidades NestJS: `PartialType`, `PickType`, `OmitType` (ej. `UpdateCardDto = PartialType(CreateCardDto)`). Esto SÍ es herencia bien hecha.
+- **Mappers** explícitos `CreateCardDto → Card` (desacople total).
+Regla: componer DTOs entre sí, no acoplar el DTO a la entidad.
+📚 *NestJS Docs → OpenAPI → Mapped types*; *Techniques → Validation*.
+
+### Referencias oficiales (1.3)
+- *NestJS Docs → Controllers* (routing, param decorators, request object).
+- *TypeScript Handbook → Optional Properties / Enums*.
+
+### Experimento clave: el DTO NO valida en runtime (descubierto en Postman)
+Se envió basura al `POST /cards` (`name` como número, `color` como string en vez de array, un `campoInventado` inexistente) → el servidor respondió **201 Created** y **devolvió la basura tal cual**. No rechazó nada.
+
+**Por qué:** consecuencia directa del **type erasure** (ver 1.1). El `CreateCardDto` solo existe en tiempo de compilación; en runtime (JS) es un objeto cualquiera sin reglas. El tipo de TS es una **promesa de diseño, no una garantía de ejecución**.
+```
+@Body() dto: CreateCardDto
+  → en TS: "debe tener forma de CreateCardDto"
+  → en runtime: "es un objeto cualquiera" 🤷
+```
+
+**Solución (Fase 3):** `class-validator` + `class-transformer` + `ValidationPipe`.
+Símil .NET exacto:
+| C# (.NET) | NestJS |
+|---|---|
+| Data Annotations `[Required]`, `[Range]`... | decoradores `@IsString()`, `@IsInt()`, `@IsEnum()`... |
+| model binding + `[ApiController]` | `ValidationPipe` (pipe global) |
+| `400 Bad Request` automático | `400 Bad Request` automático |
+Ejemplo: `@IsEnum(CardColor, { each: true })` valida cada elemento de un array. `whitelist: true` rechaza campos no declarados (el `campoInventado`).
+Idea: sin validación el DTO es **documentación**; con validación es un **guardián**. Los decoradores compensan el type erasure inyectando metadatos en runtime.
+📚 *NestJS Docs → Techniques → Validation*.
