@@ -31,3 +31,9 @@
 - **Decision:** Ningún commit va directo a `dev`/`qa`/`main`. Todo cambio entra vía Pull Request desde una rama de trabajo. Los PRs se abren manualmente desde la web de GitHub. Se prefieren PRs atómicos (una sola historia por PR). Remoto: `origin` → github.com/DennisseCannobbio/api-mtg-deck-management.
 - **Why:** Replicar el estándar profesional de revisión por PR; PRs pequeños y enfocados son más fáciles de revisar y dan un historial legible.
 - **Immediate plan:** PR #1 `docs/project-context → dev` (claude.md + .context/). PR #2 `feat/nestjs-scaffolding → dev` (proyecto NestJS), tras mergear el #1.
+
+## D-007 — Editor config versionada (Format On Save)
+- **Date:** 2026-07-22
+- **Decision:** Se versiona `.vscode/settings.json` con `formatOnSave: true`, Prettier (`esbenp.prettier-vscode`) como formateador por defecto (global + por lenguaje TS/JSON) y `codeActionsOnSave: source.fixAll.eslint`. Prettier NO se desactiva; se activa el formateo automático al guardar.
+- **Why:** El estudiante quería que Prettier formateara automáticamente al guardar. Versionar el archivo da la misma experiencia en cualquier máquina (portabilidad, coherente con D-005). Prettier estandariza el formato y limpia los diffs en PRs.
+- **Nota:** El error que motivó la consulta (`ts(2564)`) NO era de Prettier sino del compilador TS (`strictPropertyInitialization`). Ver learning-notes.
