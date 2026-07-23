@@ -36,9 +36,15 @@ Focus all exercises, examples, and future implementations on Magic: The Gatherin
 - **Security & Authorization:** Implement JWT-based Authentication, Role-Based Access Control (RBAC), and Attribute-Based Access Control (ABAC) to verify resource ownership (e.g., "Only the owner can edit this deck").
 - **Containerization:** Use multi-stage Dockerfiles for optimized production builds and `docker-compose` for local development dependencies (Database).
 
+## Testing Methodology: TDD (adopted mid-Phase 2)
+
+- **Approach:** From now on, new domain/application behavior is built with **TDD (Test-Driven Development)** following the **Red → Green → Refactor** cycle (write a failing test first → minimum code to pass → refactor while green). Reference: Kent Beck, *Test-Driven Development: By Example* (2002).
+- **Learning ramp:** For code written BEFORE adopting TDD (e.g. the existing `Card` entity), we write **tests-after** (retroactive coverage) to (a) learn the Jest tooling and (b) build a safety net. Pure TDD applies to the **next new** behaviors (e.g. Deck rules).
+- **Rule for the tutor:** Guide the student to write the test FIRST for new behavior; resist writing production code before a red test exists. Keep domain tests framework-free (no NestJS) — that is the litmus test of the Dependency Rule.
+
 ## Project Roadmap
 
-- [ ] **Phase 1:** NestJS Fundamentals (CLI, Modules, Controllers, Providers, Dependency Injection).
+- [x] **Phase 1:** NestJS Fundamentals (CLI, Modules, Controllers, Providers, Dependency Injection).
 - [ ] **Phase 2:** Clean Architecture, SOLID & Unit Testing (Decoupling NestJS from Domain/Use Cases + testing domain rules without framework).
 - [ ] **Phase 3:** Data, Validation & Docker Integration (DTOs, Pipes, Repository Pattern + setting up local Database via Docker Compose + mocking DB in integration tests).
 - [ ] **Phase 4:** Request Lifecycle, API Security & E2E Testing (Authentication with JWT, Route Protection using Guards, Ownership Policies/RBAC, Interceptors, Filters + full-flow HTTP security tests).

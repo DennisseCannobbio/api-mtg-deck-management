@@ -1,8 +1,8 @@
 import { UUID } from 'crypto';
-import { CardColor } from 'src/enums/card-color.enum';
-import { CardRarity } from 'src/enums/card-rarity.enum';
-import { CardSuperType } from 'src/enums/card-super-type.enum';
-import { CardType } from 'src/enums/card-type.enum';
+import { CardColor } from '@enums/card-color.enum';
+import { CardRarity } from '@enums/card-rarity.enum';
+import { CardSuperType } from '@enums/card-super-type.enum';
+import { CardType } from '@enums/card-type.enum';
 
 export interface Card {
   id: UUID;
