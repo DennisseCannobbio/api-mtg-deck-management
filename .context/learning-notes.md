@@ -337,3 +337,254 @@ GET /cards devolvió las cartas creadas en POSTs previos → el array persiste e
 - `findOne`: `Array.find` devuelve `T | undefined` → el método DEBE tipar `Card | undefined` (TS obliga a decidir el caso "no encontrado"; futuro → 404).
 - `import type { X }`: import solo-de-tipo, se borra al compilar (no genera require). Buena práctica coherente con type erasure.
 - `randomUUID()` de `crypto` (¡con paréntesis!) genera el id.
+
+---
+
+## Phase 1 · Lesson 1.5 — Cierre e integración (Custom Providers, conceptual)
+
+### Custom Providers: token ≠ implementación
+`providers: [CardsService]` es azúcar de `{ provide: CardsService, useClass: CardsService }`. Un provider tiene dos partes:
+- **`provide`** = el **token** (la llave con que se pide la dependencia).
+- **`useClass` / `useValue` / `useFactory` / `useExisting`** = qué se entrega.
+
+| Forma | Qué hace | Símil .NET | Cuándo |
+|---|---|---|---|
+| `useClass` | instancia una clase | `AddScoped<I,Impl>()` | normal |
+| `useValue` | entrega valor/objeto ya hecho | registrar instancia/constante | config, mocks en test |
+| `useFactory` | función que construye la dep (puede tener sus deps) | factory delegate | creación con lógica/async |
+| `useExisting` | alias a otro provider | forwarding | renombrar algo ya registrado |
+
+### 🔑 Por qué una interface NO puede ser token (el clic para quien viene de C#)
+En TS las **interfaces se borran en runtime** (type erasure otra vez) → no hay nada que "señalar" al inyectar. En .NET inyectas `IRepository` porque la interfaz existe en runtime (CLR). En NestJS se usa un **token string/Symbol** + custom provider:
+```typescript
+export const CARDS_REPOSITORY = 'CARDS_REPOSITORY';
+providers: [{ provide: CARDS_REPOSITORY, useClass: InMemoryCardsRepository }];
+// inyección: @Inject(CARDS_REPOSITORY) porque el token no es una clase
+constructor(@Inject(CARDS_REPOSITORY) private readonly repo: ICardsRepository) {}
+```
+Es exactamente el patrón `IRepository` de .NET, resuelto a la manera de TS. **Se implementa en Fase 3** (separación del repositorio). Hoy solo conceptual.
+📚 *NestJS Docs → Fundamentals → Custom Providers*.
+
+### Los 4 "clics" mentales de la Fase 1 (viniendo de C#/.NET)
+1. **Type erasure** — los tipos se borran al compilar. De aquí sale todo: DTO no valida, `@Injectable` necesita reflect-metadata, interface no puede ser token.
+2. **DI por convención** — clase en `providers: []` ES el registro (vs `AddScoped` explícito).
+3. **Separación de capas** — Controller (HTTP) vs Service (negocio/Handler), mapeo DTO→Entity en la frontera.
+4. **Token ≠ implementación** — base de testeabilidad y desacople (el `IRepository`, a la TS).
+
+### FASE 1 COMPLETADA
+Circuito montado con las manos: `main.ts → AppModule → CardsModule → CardsController → CardsService → array`. CRUD Cards funcional con DI, arquitectura por capas y modelo de dominio rico. Siguiente: **Fase 2 — Clean Architecture, SOLID & Unit Testing** (desacoplar dominio/casos de uso de NestJS + testear reglas sin framework).
+
+---
+
+## Phase 2 · Lesson 2.1 — Clean Architecture & la Dependency Rule
+
+### El problema que resolvemos
+Hoy `CardsService` hace 3 trabajos mezclados: mapeo DTO→Card (aplicación), reglas (dominio, aún vacío) y `push` al array (persistencia). Eso acopla el negocio al framework → no se puede testear una regla MTG sin instanciar NestJS, ni cambiar el array por DB sin tocar el negocio. Clean Architecture separa **lo que casi no cambia (reglas)** de **lo que cambia seguido (frameworks, DB, HTTP)**.
+
+### Los 4 anillos concéntricos (de adentro hacia afuera)
+```
+Frameworks & Drivers   → NestJS, Express, DB real, Postman     (lo más volátil)
+Interface Adapters     → Controllers, Repositories(impl), Mappers
+Application (Use Cases)→ CreateCardUseCase, orquestación
+Domain (Entities)      → Card rica, reglas MTG, ICardsRepository (puerto)  (el centro)
+```
+
+### 🔑 La Dependency Rule (regla de oro)
+> Las dependencias del código fuente solo apuntan hacia ADENTRO. Nada de un círculo interior sabe nada de uno exterior.
+
+En cristiano: **el dominio no conoce a nadie; todos conocen al dominio.** Test de fuego (se usa en 2.5): si `domain/` importa `@nestjs/*` o `../infrastructure/*` → alarma roja, violaste la regla. El dominio debe ser importable desde un test sin arrancar NestJS.
+
+### El truco del repositorio: Ports & Adapters (= DIP)
+El use case (interior) necesita guardar, pero la impl del repo (`push`/EF/DB) vive fuera. Guardar apuntando hacia afuera violaría la regla → se **invierte la dependencia**:
+- **Port (puerto):** la interfaz `ICardsRepository`. Vive en el **dominio** (interior). "Necesito guardar cartas, no me importa quién."
+- **Adapter (adaptador):** `InMemoryCardsRepository`. Vive en **infraestructura** (exterior). Sabe el *cómo* real.
+```
+UseCase ─▶ ICardsRepository          (interior → interior ✅)
+InMemoryCardsRepository ─▶ ICardsRepository   (exterior → interior ✅, la implementa)
+```
+Nadie apunta hacia afuera. Regla mnemotécnica: **el que USA la dependencia define su contrato** → el use case define `ICardsRepository`, la infra solo lo cumple.
+
+### 🔑 Símil .NET (validado por el estudiante)
+En .NET el handler llama a la **interfaz** del repo, no a la impl; el repo usa EF Core por dentro. Eso ES el DIP. Único matiz de mentalidad: en muchos equipos .NET la `IRepository` vive en `Infrastructure/`; en Clean Arch **pura** el contrato sube al dominio/aplicación (lo posee quien lo consume). Ver D-009. La otra diferencia: en .NET la Dependency Rule la **fuerza el compilador** (`Domain.csproj` no referencia `Infrastructure.csproj`); en NestJS/TS es 1 solo proyecto → la regla la sostiene la disciplina + la estructura de carpetas (y quizá lint rules luego).
+
+### Estructura de carpetas destino (por capa — D-009, aún NO creada)
+```
+src/
+├── domain/           TS puro, cero @nestjs/*
+│   ├── entities/     card.ts (rica, [2.2])
+│   ├── enums/        card-color/type/rarity/super-type (se mudan aquí)
+│   └── repositories/ cards.repository.ts (ICardsRepository = PUERTO)  ⚠️ interfaz aquí
+├── application/      conoce dominio, NO NestJS
+│   ├── dto/          create-card.dto.ts (se muda)
+│   └── use-cases/    create-card.use-case.ts, find-cards.use-case.ts [2.4]
+├── infrastructure/   aquí SÍ vive NestJS y los detalles
+│   ├── http/         cards.controller.ts (adapter delgado) + cards.module.ts (ensamblador DI)
+│   └── persistence/  in-memory-cards.repository.ts (implements ICardsRepository)
+├── app.module.ts
+└── main.ts
+```
+Mapeo con el estándar .NET del estudiante: `Controllers/`→`infrastructure/http/`; `Handler/`(impl)→`application/use-cases/`; reglas puras→`domain/entities/`; `Infrastructure/Repo`→`infrastructure/persistence/`; `Infrastructure/IRepo`→`domain/repositories/` (⚠️ sube al centro). Solo 2 cosas "suben": reglas puras y la interfaz del repo.
+
+### Qué es del libro vs convención (fundamentación D-001)
+- **Del libro** (Martin, *Clean Architecture* 2017): los 4 anillos, la Dependency Rule, y subir la interfaz del repo al interior (DIP en los boundaries, cap. 22). También: "Only Four Circles? No... the circles are schematic" (los círculos pueden ser más).
+- **Convención de comunidad** (NO textual del libro): los nombres `domain/application/infrastructure`. Una lectura estricta de "Screaming Architecture" (cap. 21) favorecería agrupar por feature (`cards/`); elegimos por-capa por pragmatismo (cercanía a .NET).
+- ⚠️ Citas dadas de memoria (fieles al sentido); verificar redacción/página exacta antes de citarlas formalmente.
+
+### Referencias oficiales (2.1)
+- R. C. Martin, *Clean Architecture: A Craftsman's Guide...* (2017), caps. 21 "Screaming Architecture", 22 "The Clean Architecture", 23 "Presenters and Humble Objects".
+- Blog canónico *"The Clean Architecture"*, blog.cleancoder.com (2012) — diagrama original de los anillos.
+- *NestJS Docs → Fundamentals → Custom Providers* (el "cómo" técnico de inyectar la interfaz, se ve en 2.3).
+
+---
+
+## Phase 2 · Lesson 2.2 — Domain Layer: entidades ricas & Value Objects
+
+### Anémico vs Rico
+- **Modelo anémico** (lo que había): la entidad es solo datos (interface = bolsa de propiedades), la lógica vive en services. Fowler lo llama **anti-patrón** ("AnemicDomainModel", 2003): contradice la idea básica de OOP = combinar datos + comportamiento.
+- **Modelo rico**: datos + comportamiento JUNTOS en la clase. La carta sabe cosas de sí misma (`card.isCreature()`).
+
+### ¿Por qué rico aquí? (¿se puede anémico? SÍ) — la respuesta honesta
+El anémico NO es ilegal: es la elección **correcta y madura** para CRUD simple sin reglas de dominio (meter rico ahí = over-engineering). Regla honesta: **el modelo rico se justifica cuando hay lógica de dominio que proteger.** Elegimos rico porque (1) MTG es un dominio genuinamente rico en reglas (color identity, límite de copias, tamaño de mazo, comandante = criatura legendaria) que se duplicarían entre services si fueran anémicas; (2) es proyecto de aprendizaje de Clean Arch/DDD y el CLAUDE.md pide Domain Layer puro con lógica. La crítica de Fowler no es "nunca uses anémico" sino "no lo llames DDD".
+| Anémico cuando | Rico cuando |
+|---|---|
+| CRUD simple, lógica trivial (get/set), prototipo | reglas/invariantes que proteger, lógica que se duplicaría, dominio = corazón del valor |
+📚 Fowler, "AnemicDomainModel" (martinfowler.com, 2003); Evans, *Domain-Driven Design* (2003) — Entities/Value Objects/invariantes.
+
+### Conceptos clave
+- **Invariante**: regla que SIEMPRE se cumple durante toda la vida del objeto, desde que nace. Ej. MTG: `manaValue >= 0`, `color` array no vacío. 🔑 La invariante jugosa NO es "que el campo exista" (eso lo da el tipo) sino "que tenga sentido" (`>= 0`, que el tipo `number` no protege).
+- **Value Object** (visto ligero): objeto definido por su VALOR, sin identidad (`id`). Dos son iguales si sus valores son iguales. Candidatos MTG: mana cost `{2}{R}{R}`, rango power/toughness. Vs **Entity** (`Card`): tiene `id`, dos cartas iguales en datos pero distinto id son distintas. Hoy NO forzamos VOs (evitar over-engineering); solo si una regla los pide.
+
+### Decisiones de modelado de dominio (Card)
+- `color: CardColor[]` — el enum YA tiene `Colorless` (Opción B) → la invariante "array no vacío" SÍ aplica (incoloro = `[Colorless]`). Invariante derivada interesante (no implementada aún): si es `Colorless`, debe ser el ÚNICO elemento (no `[White, Colorless]`).
+- `isLegendary()` = `superType === CardSuperType.Legendary` (Legendary es SUPERTYPE, no type). Útil para regla futura de Commander: comandante = `isLegendary() && isCreature()`. ← el valor del modelo rico: reglas de Deck se COMPONEN de comportamientos simples de la Card.
+
+### interface → class (llegó el momento de 1.4)
+Convertimos `Card` de `interface` a `class` porque: (1) interfaces no tienen métodos con implementación, solo firmas; (2) necesitamos constructor que valide invariantes; (3) class existe en runtime (dominio ejecutable).
+
+### 📌 PENDIENTE DE PROFUNDIZAR (anotado para futura referencia — a petición del estudiante)
+Términos para buscar sobre validación de invariantes en el constructor:
+- **"Always-Valid Domain Model"** ← término estrella. Autor: **Vladimir Khorikov** (enterprisecraftsmanship.com; libro *Unit Testing Principles, Practices, and Patterns*). Idea: imposible crear instancia en estado inválido → toda `Card` que exista está garantizada válida (no revalidar "por si acaso").
+- **"Guard Clauses"** — chequeos al inicio del constructor que lanzan si se viola una invariante. Van PRIMERO, la asignación DESPUÉS. Símil .NET: `if (x < 0) throw new ArgumentException(...)`, o helpers `ArgumentException.ThrowIfNegative(...)`.
+- **"Fail Fast principle"** — falla en construcción, no más tarde.
+- **"Factory Method pattern"** (constructor privado + `static create()`).
+- **Debate a conocer:** `throw` en constructor vs **Result pattern** (devolver `Result<Card>` en vez de lanzar; Khorikov lo prefiere para errores esperables, reservando excepciones para bugs). **Decisión nuestra: empezar con `throw`** por simplicidad pedagógica + encaja con NestJS (mapea excepciones a HTTP). Result = posible sofisticación futura, hoy sería over-engineering.
+- ⚠️ Dos capas de validación (defensa en profundidad, NO "una u otra"): **guard clauses de dominio** en la entidad (reglas de negocio, última línea de defensa, no se salta jamás) + **validación de DTO** (class-validator, Fase 3) en la frontera HTTP (buenos 400 al cliente).
+
+### 🔑 Invariante (guard) vs Consulta (query) — la distinción clave de 2.2
+La distinción más sutil de la lección. Regla de bolsillo:
+> **¿La frase termina en "...o si no, ERROR"? → INVARIANTE (guard clause, LANZA `throw`).**
+> **¿La frase es una pregunta que responde SÍ/NO? → CONSULTA (método, DEVUELVE boolean, NUNCA lanza).**
+
+| Aspecto | Invariante (Guard Clause) | Consulta (Query method) |
+|---|---|---|
+| Qué es | regla que SIEMPRE debe cumplirse | pregunta sobre el estado del objeto |
+| Dónde vive | DENTRO del constructor (antes de asignar) | método público `is.../has...` |
+| Retorna / Lanza | `throw` (no retorna) | `return boolean` (nunca lanza) |
+| Cuándo corre | automático en CADA `new` (imposible saltarlo) | cuando alguien la llama a propósito |
+| Frase típica | "el mana no puede ser negativo, **o si no error**" | "**¿es** esta carta una criatura?" |
+
+**Ejemplos concretos de este proyecto (Card):**
+- **INVARIANTES** (guards en el constructor, lanzan):
+  - `manaValue >= 0` → *"no puede existir carta con mana negativo, o si no ERROR"*. El tipo `number` NO protege esto (`-5` es number válido).
+  - `color.length > 0` → *"debe tener al menos un color o Colorless, o si no ERROR"*.
+  - `Colorless` no combinado → *"si incluye Colorless y length>1, ERROR"* (invariante derivada: o eres incoloro, o tienes colores, no ambos).
+- **CONSULTAS** (métodos, devuelven boolean, nunca lanzan):
+  - `isCreature()` → *"¿es una criatura?"* → `this.type.includes(Creature)`.
+  - `isLegendary()` → *"¿es legendaria?"* → `this.superType === Legendary`.
+  - `isMulticolor()` → *"¿tiene 2+ colores?"* → `this.color.length > 1`.
+
+**Por qué se confunden:** una misma idea de negocio (ej. "colores") genera AMBAS: una invariante ("no vacío", "no colorless+color") Y consultas ("¿multicolor?"). El error típico (que cometí y corregí) es meter un `throw` dentro de un método de consulta → preguntarle "¿eres multicolor?" a una carta válida NO debe explotar, debe responder `false`.
+
+### 🔑 El pago del "always-valid": las consultas CONFÍAN, no re-validan
+Si el constructor YA garantizó la validez (ej. no existe `[White, Colorless]`), los métodos de consulta pueden asumir datos válidos → se simplifican. Por eso `isMulticolor()` es solo `length > 1` (NO re-chequea Colorless): el guard ya lo blindó al construir.
+
+### ⚠️ Validar sobre `params.X`, NO sobre `this.X` (bug vivido)
+Los guards corren ANTES de `Object.assign(this, params)` → en ese punto `this.color` es `undefined` (aún no asignado) → `this.color.length` = 💥 `TypeError`. Regla: **valida sobre `params` (el input), porque validas ANTES de asignar** (coherente con "no asignar hasta estar seguro"). `this` aún está vacío.
+
+### Detalles de estilo
+- `.includes(X)` es más idiomático que `.some(c => c === X)` para "¿el array contiene este valor exacto?". `.some()` se reserva para predicados complejos (ej. `power > 3`).
+- Propiedades `readonly` (público) = leer sí, escribir no (el controller/repo necesitan LEER `card.name`). `private readonly` bloquearía también la lectura → requeriría getters. Se eligió `readonly` público.
+
+### Referencias oficiales (2.2)
+- Martin Fowler, *"AnemicDomainModel"* (martinfowler.com/bliki/AnemicDomainModel.html, 2003).
+- Eric Evans, *Domain-Driven Design* (2003) — Entities, Value Objects, invariantes.
+- Vladimir Khorikov, *"Always-Valid Domain Model"* (enterprisecraftsmanship.com).
+
+---
+
+## Phase 2 · Testing — Primeros unit tests con Jest (tests-after de Card)
+
+### Herramienta: Jest (preconfigurado por NestJS)
+- Convención de nombres: archivos `*.spec.ts` (`testRegex` en package.json). Viven junto al código en `src/`.
+- Comandos: `npm run test` (todo), `npm run test:watch` (re-corre al guardar), `npm run test -- card.spec` (filtra por archivo — el `--` pasa el arg a Jest). `ts-jest` entiende TS.
+- `describe`/`it`/`expect` son **globales** (Jest los inyecta) → NO se importan. ⚠️ NO importar de `node:test` (ese es el runner nativo de Node, otra herramienta).
+
+### Anatomía (símil xUnit .NET)
+| Jest | Qué | .NET xUnit |
+|---|---|---|
+| `describe('X', () => {})` | agrupa suite (anidable) | `class XTests` |
+| `it('should...', () => {})` | un caso (alias `test`) | `[Fact] void Should_...()` |
+| `expect(x).toBe(y)` | aserción igualdad estricta | `Assert.Equal(y, x)` |
+| **AAA** Arrange-Act-Assert | organización | idéntico |
+
+### 🔑 `.toThrow()` — 2 trampas clave
+1. **Envolver en arrow function**: `expect(() => new Card(...)).toThrow()`. Si pasas `expect(new Card(...))` directo, el `new` se ejecuta AHÍ, lanza, y el test crasha ANTES del expect. La `() =>` hace que Jest invoque por dentro y capture el throw.
+2. **Afirmar el MENSAJE**: `.toThrow('mana negativo')`, no `.toThrow()` pelado. Un `.toThrow()` sin arg pasa si lanza CUALQUIER error por CUALQUIER motivo (incluido un `TypeError` accidental) → test "mentiroso". Con mensaje pruebas que lanzó por la razón correcta. (Símil .NET: `Assert.Throws<ArgumentException>` afirma el TIPO.)
+
+### 🔑 Un test solo prueba algo si EJECUTA el código real
+Error clásico del principiante: `const card: Card = { ...datos inválidos... }` (objeto literal disfrazado) en vez de `new Card({...})`. El primero NO llama al constructor → los guards NUNCA corren → "pruebas" algo que ni pasa por la lógica. Siempre `new Card(...)`.
+
+### 🔑 Consultas booleanas: probar AMBOS lados (true Y false)
+Un test que solo prueba el `true` es MEDIO test: un método buggeado `isCreature(){ return true }` (siempre true) pasaría igual. Hay que probar el caso positivo Y el negativo → se comprueba que el método DISCRIMINA. (Teoría: cubrir las **clases de equivalencia**; para un booleano hay 2.)
+
+### Test Data Builder / Object Mother (helper `makeCardProps`)
+Construir una entidad con 14 campos en cada test = ruido que oculta la intención. Solución: `function makeCardProps(overrides = {}) { return { ...defaults válidos..., ...overrides }; }`. El `...overrides` AL FINAL pisa solo lo que especificas. Así el test GRITA su intención: `makeCardProps({ manaValue: -5 })` — se ve solo lo que importa. Los defaults deben ser VÁLIDOS → el camino feliz es `makeCardProps()` sin args. (Patrón .NET: Object Mother / Test Data Builder.)
+
+### Camino feliz: afirmar que NO lanza
+`expect(() => new Card(makeCardProps())).not.toThrow();` — el `.not` niega el matcher.
+
+### El output de Jest ES documentación viva
+Los strings de `describe`/`it` se imprimen como una spec legible (`Card > isCreature > returns true for a creature type`). Buenos nombres de test = documentación del comportamiento del dominio sin abrir el código. `describe` anidado da salida jerárquica.
+
+### 🔑 Test de fuego de la Dependency Rule (2.1) confirmado en la práctica
+`card.spec.ts` testea `Card` SIN arrancar NestJS (dominio puro). Que se pueda es la prueba de que la entidad no depende del framework = Clean Architecture funcionando.
+
+### Bomba de tiempo revelada por los tests: imports absolutos `src/...`
+`from 'src/enums/...'` funcionaba en NestJS (por `baseUrl: "./"` en tsconfig) pero **Jest tiene su propio resolvedor** y no lo entiende → `Cannot find module`. Los tests destaparon un acoplamiento oculto (uno de los valores de testear). Fix elegido: **imports relativos** (`../../enums/...`) — portables en cualquier herramienta sin config extra, e idiomáticos (el scaffolding de NestJS los usa). Alternativa: `moduleNameMapper` en Jest (perpetúa los absolutos) o path aliases `@domain/...` (ideal a futuro pero requiere configurar tsconfig + ts-jest). Regla para calcular relativo: cada `../` sube un nivel de carpeta. Un import roto en CUALQUIER eslabón de la cadena de imports tumba toda la suite (por eso el error apuntaba a `card.ts` aunque el `.spec` estuviera bien).
+
+### Referencias (Testing)
+- *Jest Docs* (jestjs.io) — Getting Started, Expect (matchers), Setup.
+- *NestJS Docs → Testing*.
+- Kent Beck, *Test-Driven Development: By Example* (2002).
+
+---
+
+## Principios de diseño: YAGNI, KISS, DRY (el trío que se cita junto)
+
+Anotados a raíz de la reflexión del estudiante ("pensaba en escalabilidad futura; aprendí a desarrollar a medida que se necesita"). Son heurísticas para decidir *cuánta* estructura meter.
+
+### YAGNI — *You Aren't Gonna Need It*
+> No construyas algo hasta que una necesidad REAL lo pida.
+- Origen: Extreme Programming (Kent Beck, Ron Jeffries). Frase popularizada por Martin Fowler ("Yagni", martinfowler.com, 2015).
+- El costo oculto de "por si acaso": todo método/abstracción especulativa es código que hay que mantener, testear y entender, SIN aportar valor hasta que se use. Peor: a menudo adivinas mal la necesidad futura y construyes la abstracción equivocada.
+- 🔑 Regla de dominio: **añade comportamiento cuando una regla de negocio lo requiere, no cuando el dato existe.** Ej. concreto de este proyecto: el enum `CardSuperType` tiene Snow/World/Ongoing, pero NO creamos `isSnow()`/`isWorld()` "porque el dato existe". Solo existe `isLegendary()` porque hay una regla real (Commander) que lo pide. Los demás se crearán CUANDO una regla de Deck los necesite (con TDD: el test de la regla "tira" del método).
+- ⚠️ Matiz: YAGNI NO es excusa para código chapucero. No aplica a: buenas prácticas base (tests, validación, seguridad), ni a decisiones caras de revertir después (elección de arquitectura/BD). Aplica a *features/abstracciones especulativas*.
+
+### KISS — *Keep It Simple, Stupid*
+> Prefiere la solución más simple que resuelva el problema. La complejidad se paga en mantenimiento.
+- Origen: atribuido a Kelly Johnson (ingeniería aeronáutica, Lockheed).
+- Relación con YAGNI: YAGNI dice *"no lo agregues todavía"* (dimensión temporal/features); KISS dice *"lo que agregues, hazlo simple"* (dimensión de complejidad). Ej. en este proyecto: `isMulticolor()` es `return this.color.length > 1` (simple) porque el guard del constructor ya blindó los datos → la consulta CONFÍA y no re-valida (KISS + pago del always-valid).
+
+### DRY — *Don't Repeat Yourself*
+> Cada pieza de conocimiento debe tener una representación única y autoritativa en el sistema.
+- Origen: Andy Hunt & Dave Thomas, *The Pragmatic Programmer* (1999).
+- Ya aplicado sin nombrarlo: el helper `makeCardProps` (evita repetir 14 campos), el mapeo DTO→Card centralizado, la idea de `PartialType` para no duplicar DTOs (1.3).
+- ⚠️ Matiz importante (WET/AHA): NO todo lo que "se ve igual" es duplicación real. DRY es sobre duplicar *conocimiento/reglas*, no *código que coincide por casualidad*. Abstraer demasiado pronto dos cosas que luego divergen es peor que la duplicación (acoplamiento accidental). "Prefiere duplicación a la abstracción equivocada" (Sandi Metz). Regla de bolsillo: dedúplica a la 3ª repetición, no a la 2ª.
+
+### El equilibrio (la madurez que describió el estudiante)
+Los tres empujan contra el instinto de "sobre-ingeniería anticipada". El punto NO es sub-diseñar, sino **diseñar para lo que sabes hoy, con código simple y sin duplicar conocimiento, dejando que las necesidades reales tiren de la estructura futura.** Es más fácil añadir estructura cuando se necesita que quitar la que sobra.
+
+### Referencias (principios)
+- Martin Fowler, *"Yagni"* (martinfowler.com/bliki/Yagni.html, 2015).
+- Andy Hunt & Dave Thomas, *The Pragmatic Programmer* (1999) — DRY.
+- Sandi Metz, *"The Wrong Abstraction"* (sandimetz.com, 2016) — el matiz de DRY.

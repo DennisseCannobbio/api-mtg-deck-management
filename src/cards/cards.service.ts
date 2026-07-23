@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { randomUUID, UUID } from 'crypto';
-import { CreateCardDto } from 'src/models/DTO/create-card.dto';
-import { Card } from 'src/models/interface/card.interface';
+import { CreateCardDto } from '../models/DTO/create-card.dto';
+import { Card } from '../models/interface/card.interface';
 
 @Injectable()
 export class CardsService {

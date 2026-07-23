@@ -37,3 +37,36 @@
 - **Decision:** Se versiona `.vscode/settings.json` con `formatOnSave: true`, Prettier (`esbenp.prettier-vscode`) como formateador por defecto (global + por lenguaje TS/JSON) y `codeActionsOnSave: source.fixAll.eslint`. Prettier NO se desactiva; se activa el formateo automático al guardar.
 - **Why:** El estudiante quería que Prettier formateara automáticamente al guardar. Versionar el archivo da la misma experiencia en cualquier máquina (portabilidad, coherente con D-005). Prettier estandariza el formato y limpia los diffs en PRs.
 - **Nota:** El error que motivó la consulta (`ts(2564)`) NO era de Prettier sino del compilador TS (`strictPropertyInitialization`). Ver learning-notes.
+
+## D-008 — Phase 2 syllabus approved
+- **Date:** 2026-07-22
+- **Decision:** Se aprueba el temario de Fase 2 (Clean Architecture, SOLID & Unit Testing), como primera aproximación (coherente con D-002), con libertad de profundizar sobre la marcha:
+  - 2.1 Clean Architecture & la Dependency Rule (capas concéntricas, estructura de carpetas).
+  - 2.2 Domain Layer: entidades ricas & Value Objects (Card de interface anémica → modelo con comportamiento/invariantes).
+  - 2.3 SOLID a fondo (foco DIP/ISP): Repository Pattern como puerto `ICardsRepository` en dominio, impl en infraestructura (materializa el "token ≠ implementación" de 1.5).
+  - 2.4 Application Layer: Use Cases (extraer casos de uso; `CardsService` NestJS pasa a adaptador delgado).
+  - 2.5 Unit Testing con Jest (testear dominio + use cases SIN NestJS; AAA, mocks/stubs del repo; símil xUnit/Moq).
+  - 2.6 Cierre: refactor integrado & cobertura (`test:cov`, dominio con alta cobertura y cero deps de framework).
+- **Why:** Dar un mapa claro y trazable de la fase, replicando el proceso de la Fase 1.
+- **Alcance / fuera de alcance:** La validación runtime (class-validator/ValidationPipe), Pipes, y el 404 vía `NotFoundException` siguen siendo **Fase 3** (deuda técnica ya anotada en state.md). Fase 2 = estructura + testeo, no I/O ni validación HTTP.
+
+## D-009 — Estructura de carpetas Clean Architecture (por capa)
+- **Date:** 2026-07-22
+- **Decision:** Se adopta agrupación **por capa** para `src/`: `domain/` (entities, enums, repositories/=puertos), `application/` (dto, use-cases), `infrastructure/` (http/=controller+module, persistence/=impl del repo). La interfaz del repositorio (`ICardsRepository`) vive en `domain/repositories/`; su implementación (`InMemoryCardsRepository`) en `infrastructure/persistence/`.
+- **Why:** Cercanía a la mentalidad .NET del estudiante (carpeta por tipo de componente) manteniendo la Dependency Rule. Se evaluó agrupar por feature (`cards/{domain,application,infrastructure}`) y se pospone la decisión a cuando aparezca `Decks`.
+- **Fundamentación (D-001):** Los 4 anillos + la Dependency Rule son del libro de R. C. Martin, *Clean Architecture* (2017), cap. 22 "The Clean Architecture" y blog "The Clean Architecture" (cleancoder.com, 2012). Los **nombres** de carpeta (`domain/application/infrastructure`) son convención de la comunidad, NO prescripción textual del libro (Martin: "Only Four Circles? No... the circles are schematic"). Una lectura estricta ("Screaming Architecture", cap. 21) favorecería ligeramente agrupar por feature; se eligió por-capa por pragmatismo. **Subir la interfaz del repo al dominio SÍ es canónico del libro** (Dependency Inversion aplicado a los boundaries, cap. 22): el contrato lo posee quien lo consume (interior), la impl (DB/EF/array) es un detalle del anillo externo. Que en .NET la `IRepository` viva en `Infrastructure/` es desviación pragmática común, no Clean Arch estricta.
+- **Nota de transparencia:** las citas textuales del libro se dieron de memoria (fieles al sentido); verificar redacción/página exacta en la edición antes de citarlas formalmente.
+
+## D-010 — Adopción de TDD (a mitad de Fase 2)
+- **Date:** 2026-07-22
+- **Decision:** Se adopta **TDD (Test-Driven Development)** con ciclo **Red → Green → Refactor** para todo comportamiento NUEVO de dominio/aplicación de aquí en adelante (test que falla primero → código mínimo → refactor en verde). Referencia: Kent Beck, *Test-Driven Development: By Example* (2002).
+- **Rampa de aprendizaje:** Para código escrito ANTES de adoptar TDD (la entidad `Card`, ya hecha) se escriben **tests-after** (cobertura retroactiva) para (a) aprender la herramienta Jest sin la carga extra de TDD+diseño simultáneos, y (b) tener red de seguridad. TDD puro se aplica al PRÓXIMO comportamiento nuevo (candidatos: reglas de Deck, o un método nuevo de Card).
+- **Why:** El estudiante lo propuso al llegar a la fase de testing; es una habilidad profesional de primer nivel y el dominio puro (sin deps/mocks/framework) es el escenario ideal para aprenderlo. Los tests de dominio deben ser framework-free (sin NestJS) = prueba de fuego de la Dependency Rule.
+- **Impacto:** Se añadió sección "Testing Methodology: TDD" al `CLAUDE.md`.
+
+## D-011 — Path aliases sincronizados (tsconfig + Jest) e imports
+- **Date:** 2026-07-23
+- **Decision:** Se adoptan **path aliases** con fuente de verdad ÚNICA en `tsconfig.json → paths`: `@domain/*` → `src/domain/*`, `@enums/*` → `src/enums/*`. Jest los hereda automáticamente vía `pathsToModuleNameMapper` (de `ts-jest`) en un nuevo `jest.config.ts` (se movió la config Jest inline desde `package.json` a este archivo `.ts` para poder ejecutar el helper). Para carpetas sin alias aún (`models/`, que se eliminará) se usan imports **relativos**. Se prohíben imports absolutos `src/...` (Jest no los resuelve; solo NestJS por `baseUrl`).
+- **Why:** Evitar "path hell" (`../../../`) y el problema de doble config (NestJS y Jest son resolvedores distintos). Con fuente única, al añadir un alias solo se toca `tsconfig`. Se eligió `jest.config.ts` (opción 2b) sobre mapper manual porque las próximas migraciones Clean Arch traerán más aliases. Aliases definidos solo para carpetas existentes (YAGNI: no se crean `@application`/`@infrastructure` hasta tener contenido).
+- **Detalle técnico:** el `jest.config.ts` lee `tsconfig.json` con `readFileSync`+`JSON.parse` (NO `import ... from './tsconfig.json'`, que con `module: nodenext` exige `import attribute` frágil). Se añadió `types: ["node", "jest"]` al tsconfig para que el editor reconozca los globales de Jest (`describe`/`it`/`expect`) — trade-off: desactiva la auto-inclusión de otros `@types/*`.
+- **Limpieza asociada:** se borraron los `.spec.ts` autogenerados por el CLI (`cards.controller.spec`, `cards.service.spec`, `app.controller.spec`) — esqueletos vacíos (`should be defined`) sobre código de Fase 1 que se migrará. `cards.controller.spec` además fallaba por DI incompleta (no registraba `CardsService`). YAGNI: se reescribirán en la migración Clean Arch. Queda solo `card.spec.ts` (10 tests con valor real).

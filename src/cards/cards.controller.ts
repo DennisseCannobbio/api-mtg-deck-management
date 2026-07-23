@@ -1,8 +1,8 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
-import { CreateCardDto } from 'src/models/DTO/create-card.dto';
+import { CreateCardDto } from '../models/DTO/create-card.dto';
 import { CardsService } from './cards.service';
 import type { UUID } from 'crypto';
-import type { Card } from 'src/models/interface/card.interface';
+import type { Card } from '../models/interface/card.interface';
 
 @Controller('cards')
 export class CardsController {
