@@ -11,7 +11,7 @@ export class CardsService {
     return this.cards;
   }
 
-  findOne(id: UUID): Card | undefined {
+  findById(id: UUID): Card | undefined {
     // * Cuando no encuentre nada, lanzar excepcion => Para el futuro.
     return this.cards.find((c) => c.id === id);
   }

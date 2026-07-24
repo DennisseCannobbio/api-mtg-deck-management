@@ -588,3 +588,66 @@ Los tres empujan contra el instinto de "sobre-ingeniería anticipada". El punto 
 - Martin Fowler, *"Yagni"* (martinfowler.com/bliki/Yagni.html, 2015).
 - Andy Hunt & Dave Thomas, *The Pragmatic Programmer* (1999) — DRY.
 - Sandi Metz, *"The Wrong Abstraction"* (sandimetz.com, 2016) — el matiz de DRY.
+
+---
+
+## Phase 2 · Lesson 2.3 — SOLID & Repository Pattern (DIP)
+
+### SOLID aterrizado al proyecto
+| Principio | Dónde |
+|---|---|
+| **S** Single Responsibility | `Card` (dominio) vs `CardsController` (HTTP) vs `CardsRepository` (persistencia). Hoy `CardsService` viola esto (mapeo + "repo"). |
+| **O** Open/Closed | añadir `PostgresCardsRepository` sin tocar use cases (cambias 1 línea del `useClass`). |
+| **L** Liskov | cualquier impl de `CardsRepository` funciona donde se espera la interfaz. |
+| **I** Interface Segregation | contrato con SOLO los métodos que se usan (no CRUD "porque sí"). |
+| **D** Dependency Inversion | **el corazón de 2.3.** Use case → `CardsRepository` (abstracción), no → array/DB. |
+
+### Repository Pattern = DIP materializado (las 4 piezas)
+1. **PUERTO** (interfaz `CardsRepository`) → vive en `domain/repositories/`. El contrato.
+2. **TOKEN** (`CARDS_REPOSITORY = Symbol(...)`) → porque la interfaz se borra en runtime (type erasure de 1.5).
+3. **IMPLEMENTACIÓN** (`InMemoryCardsRepository implements CardsRepository`) → vive en `infrastructure/persistence/`. El detalle (array hoy).
+4. **WIRING** (custom provider) → conecta token ↔ impl en el módulo. [pendiente]
+```
+UseCase ─▶ CardsRepository (abstracción) ◀─implementa─ InMemoryCardsRepository (detalle)
+```
+La impl se nombra por su "cómo": `InMemoryCardsRepository`, `PostgresCardsRepository`, `TypeOrmCardsRepository`... todas implementan el mismo puerto → cambias una por otra sin tocar el negocio (= Open/Closed habilitado por DIP). Símil .NET: `AddScoped<IRepo, PostgresRepo>()`.
+
+### Contrato mínimo de `CardsRepository` (Interface Segregation + YAGNI)
+`findAll(): Card[]`, `findById(id): Card | undefined`, `create(card): Card`, `update(card): Card`. **NO** se agregó `delete` (sin caso de uso real aún). El `update` SÍ se agregó porque hay caso real justificado (usuario corrige carta mal creada) — YAGNI bien aplicado = el método nace de una necesidad, no de una plantilla CRUD. El repo trabaja con `Card` (dominio), NUNCA con el DTO.
+
+### 🔑 Convención de nombres: archivo vs interfaz vs implementación
+- **Archivo:** `cards.repository.ts` (kebab-case por concepto; NO lleva `I`, ej. no `icards.repository.ts`). Plural (recurso/colección, coherente con `cards.controller/service/module`). La entidad es singular (`card.ts`), el recurso plural.
+- **Interfaz:** `CardsRepository` (sin `I`) o `ICardsRepository` (con `I`, estilo .NET) — decisión de estilo, ser CONSISTENTE. Se eligió SIN `I` (idiomático TS).
+- **Implementación:** por su tecnología (`InMemoryCardsRepository`).
+
+### 🔑 Symbol como token de DI (concepto nuevo)
+`Symbol` = tipo primitivo JS; **cada Symbol es único e irrepetible**, aunque tenga igual descripción: `Symbol('X') === Symbol('X')` → `false` (vs strings: `'X' === 'X'` → `true`). La descripción es solo etiqueta de debug; la identidad es única (metáfora: string = nombre "Juan"; Symbol = ADN). Por eso como token de DI evita colisiones: dos módulos con `Symbol('CARDS_REPOSITORY')` NO chocan (con strings sí). Matiz: para proyectos chicos un string basta; Symbol es la forma robusta (se eligió por aprender el patrón pro). Token vive JUNTO a la interfaz (mismo archivo `cards.repository.ts`): son el mismo concepto ("cómo pido el repo"). No hay lugar "oficial" impuesto por NestJS; juntarlos evita dispersión (YAGNI). Inyección: `@Inject(CARDS_REPOSITORY)` porque el token no es una clase.
+
+### 🔑 `implements` (símil .NET `: IRepository`)
+`class InMemoryCardsRepository implements CardsRepository` → TS obliga a cumplir el contrato en compile-time (si falta un método o cambia una firma, error). Red de seguridad. ⚠️ Un parámetro EXTRA en la impl (ej. `update(card, id)` vs interfaz `update(card)`) puede NO romper el `implements` por compatibilidad estructural, pero DESALINEA impl y contrato → hay que unificarlos.
+
+### 🔑 Update: por qué NO recibe `id` suelto (el id ya está en la Card)
+El `id` es campo obligatorio del constructor de `Card` → toda `Card` lo trae dentro (`card.id`). En `update(card)`, pasar un `id` aparte es redundante y ambiguo (¿y si `id` ≠ `card.id`? ¿cuál gana?). Se usa `card.id` → una sola fuente de verdad. Excepción: `findById(id)` SÍ recibe id suelto, porque ahí NO tienes la Card (la estás buscando).
+
+### 🔑 Read-Modify-Write (el patrón del update)
+Actualizar algo existente = 3 pasos, y ocurren en el USE CASE (2.4), no en el repo:
+```
+1. READ    → repo.findById(id)                    (lee la carta vieja)
+2. MODIFY  → new Card({ ...vieja, campoCorregido })  (reconstruye COMPLETA + valida vía constructor)
+3. WRITE   → repo.update(cardNueva)               (guarda)
+```
+Conecta con PATCH: el cliente manda cambio parcial `{ manaValue: 1 }`, el use case lee la vieja, fusiona, reconstruye Card completa validada, y llama update. El PATCH parcial (HTTP) NO implica update parcial en el repo → la "magia" del parcial vive en el use case; el repo recibe Card completa (Estilo A). Pago: cuando `update` corre, el id YA existe (el READ lo garantizó) → el repo puede asumir camino feliz. Bug clásico cazado: guardar `existingCard` (vieja) en vez de `card` (nueva) → el cambio se pierde (un test lo cazaría al instante).
+
+### 🔑 findAll: copia `[...this.cards]` — DOS niveles de inmutabilidad
+`readonly` en los CAMPOS protege el contenido de CADA Card (`card.manaValue = -5` → bloqueado). Pero NO protege el ARRAY como colección: si devuelves el array interno directo, alguien hace `.push()/.pop()/.splice()` y modifica QUÉ cartas hay en tu almacén (sin tocar campos readonly). Solución: `return [...this.cards]` (copia superficial del array). Complementario:
+- `readonly` campos → protege el CONTENIDO de cada Card (nivel carta).
+- copia del array → protege QUÉ Cards hay (nivel colección).
+Matiz: `[...this.cards]` es shallow (array nuevo, mismas referencias de Card). Como las Cards tienen campos readonly, las referencias compartidas son seguras → shallow + readonly = robusto, no hace falta deep copy.
+
+### 🔑 ¿Quién genera el ID? auto-increment vs UUID (duda del estudiante)
+El estudiante notó que "normalmente el id lo crea la DB". Correcto PARA auto-increment (`SERIAL`/`IDENTITY`): solo la DB lleva el contador → el código no puede adivinar el número → la DB lo genera. PERO con **UUID** (este proyecto) cualquiera puede generarlo (número gigante aleatorio, colisión ~0, sin contador central). Decisión adoptada (Opción A): el **use case** genera el UUID al construir la entidad (`new Card({ id: randomUUID(), ...dto })`), el repo es "tonto" (solo `push`/guarda). Por qué: (1) coherente con `Card` que exige `id` obligatorio en el constructor (always-valid desde que nace); (2) entidad completa y testeable SIN DB (pago para 2.5); (3) UUID en app funciona en sistemas distribuidos y no expone el conteo de registros. Ninguna práctica es universal: el TIPO de id inclina la balanza (auto-increment → DB; UUID → app, o DB con `gen_random_uuid()` si se quisiera en Fase 3).
+
+### Referencias (2.3)
+- *NestJS Docs → Fundamentals → Custom Providers* (tokens, `useClass`, `@Inject`).
+- *MDN → Symbol* / *TypeScript Handbook → Symbols*.
+- R. C. Martin, *Clean Architecture* — DIP y boundaries (repositorio invertido).
