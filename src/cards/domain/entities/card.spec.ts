@@ -1,8 +1,8 @@
-import { CardColor } from '@enums/card-color.enum';
+import { CardColor } from '@cards/domain/enums/card-color.enum';
 import { randomUUID } from 'crypto';
-import { CardType } from '@enums/card-type.enum';
-import { CardSuperType } from '@enums/card-super-type.enum';
-import { CardRarity } from '@enums/card-rarity.enum';
+import { CardType } from '@cards/domain/enums/card-type.enum';
+import { CardSuperType } from '@cards/domain/enums/card-super-type.enum';
+import { CardRarity } from '@cards/domain/enums/card-rarity.enum';
 import { Card } from './card';
 
 function makeCardProps(overrides = {}) {

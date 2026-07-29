@@ -407,9 +407,9 @@ Nadie apunta hacia afuera. Regla mnemotécnica: **el que USA la dependencia defi
 ### 🔑 Símil .NET (validado por el estudiante)
 En .NET el handler llama a la **interfaz** del repo, no a la impl; el repo usa EF Core por dentro. Eso ES el DIP. Único matiz de mentalidad: en muchos equipos .NET la `IRepository` vive en `Infrastructure/`; en Clean Arch **pura** el contrato sube al dominio/aplicación (lo posee quien lo consume). Ver D-009. La otra diferencia: en .NET la Dependency Rule la **fuerza el compilador** (`Domain.csproj` no referencia `Infrastructure.csproj`); en NestJS/TS es 1 solo proyecto → la regla la sostiene la disciplina + la estructura de carpetas (y quizá lint rules luego).
 
-### Estructura de carpetas destino (por capa — D-009, aún NO creada)
+### Estructura de carpetas (por capa — D-009) ⚠️ CAMBIADA a por-feature en 2.4 (ver nota abajo)
 ```
-src/
+src/                     ← ESTA estructura (por CAPA) fue REEMPLAZADA. Se conserva por trazabilidad.
 ├── domain/           TS puro, cero @nestjs/*
 │   ├── entities/     card.ts (rica, [2.2])
 │   ├── enums/        card-color/type/rarity/super-type (se mudan aquí)
@@ -424,6 +424,24 @@ src/
 └── main.ts
 ```
 Mapeo con el estándar .NET del estudiante: `Controllers/`→`infrastructure/http/`; `Handler/`(impl)→`application/use-cases/`; reglas puras→`domain/entities/`; `Infrastructure/Repo`→`infrastructure/persistence/`; `Infrastructure/IRepo`→`domain/repositories/` (⚠️ sube al centro). Solo 2 cosas "suben": reglas puras y la interfaz del repo.
+
+### 🔄 ACTUALIZACIÓN (2026-07-24, durante 2.4): se cambió a estructura POR FEATURE (D-012)
+La estructura por-capa de arriba se REEMPLAZÓ por **por-feature** (Vertical Slice). Ahora la primera división es la ENTIDAD, y dentro van las 3 capas:
+```
+src/
+└── cards/                    ← FEATURE (todo lo de Card junto)
+    ├── domain/
+    │   ├── entities/         card.ts, card.spec.ts
+    │   ├── enums/            los 4 enums
+    │   └── repositories/     cards.repository.ts (puerto + token)
+    ├── application/
+    │   └── dto/              create-card.dto.ts   (+ use-cases/ en 2.4)
+    └── infrastructure/
+        ├── http/             cards.controller.ts, cards.module.ts
+        └── persistence/      in-memory-cards.repository.ts
+```
+Es INVERTIR el anidamiento: por-capa = `capa/entidad`; por-feature = `entidad/capa`. Alias único `@cards/*` → `src/cards/*`.
+**Por qué el cambio** (el estudiante lo pidió al entender ambas): por-feature "grita" el dominio (Screaming Arch), agrupa todo lo de una feature junto, escala mejor, y era lo que la lectura estricta del libro ya favorecía (D-009 lo reconocía). Se migró con 1 sola feature = costo mínimo. La **Dependency Rule NO cambia** (solo el orden de carpetas). Nombre en .NET: **Vertical Slice Architecture** (Jimmy Bogard). Lección meta: el estudiante eligió por-capa originalmente "por el símil .NET" sin conocer la alternativa → revisar decisiones al ampliar conocimiento es sano. Ver D-012.
 
 ### Qué es del libro vs convención (fundamentación D-001)
 - **Del libro** (Martin, *Clean Architecture* 2017): los 4 anillos, la Dependency Rule, y subir la interfaz del repo al interior (DIP en los boundaries, cap. 22). También: "Only Four Circles? No... the circles are schematic" (los círculos pueden ser más).
@@ -647,7 +665,79 @@ Matiz: `[...this.cards]` es shallow (array nuevo, mismas referencias de Card). C
 ### 🔑 ¿Quién genera el ID? auto-increment vs UUID (duda del estudiante)
 El estudiante notó que "normalmente el id lo crea la DB". Correcto PARA auto-increment (`SERIAL`/`IDENTITY`): solo la DB lleva el contador → el código no puede adivinar el número → la DB lo genera. PERO con **UUID** (este proyecto) cualquiera puede generarlo (número gigante aleatorio, colisión ~0, sin contador central). Decisión adoptada (Opción A): el **use case** genera el UUID al construir la entidad (`new Card({ id: randomUUID(), ...dto })`), el repo es "tonto" (solo `push`/guarda). Por qué: (1) coherente con `Card` que exige `id` obligatorio en el constructor (always-valid desde que nace); (2) entidad completa y testeable SIN DB (pago para 2.5); (3) UUID en app funciona en sistemas distribuidos y no expone el conteo de registros. Ninguna práctica es universal: el TIPO de id inclina la balanza (auto-increment → DB; UUID → app, o DB con `gen_random_uuid()` si se quisiera en Fase 3).
 
+### Paso 4 — WIRING (custom provider) [COMPLETA 2.3]
+Conecta las piezas. En `cards.module.ts`, forma explícita del provider:
+```typescript
+providers: [{ provide: CARDS_REPOSITORY, useClass: InMemoryCardsRepository }]
+```
+Léelo: "cuando pidan el token CARDS_REPOSITORY, instancia y entrega InMemoryCardsRepository". `providers: [CardsService]` es azúcar de `{ provide: CardsService, useClass: CardsService }` (token = la propia clase). Símil .NET EXACTO: `AddScoped<ICardsRepository, InMemoryCardsRepository>()` → `provide` = contrato, `useClass` = impl. Pago DIP: cambiar a `PostgresCardsRepository` en Fase 3 = tocar SOLO esa línea. Se metió en `CardsModule` existente (no módulo nuevo) por KISS/YAGNI. ⚠️ Recordar encapsulación (1.2): los providers son privados al módulo → si un use case en otro módulo (2.4) necesita el repo, hay que `exports: [CARDS_REPOSITORY]`. Se añadió alias `@infrastructure/*` al tsconfig (ya hay contenido → no YAGNI). Bug cazado por el compilador: rename `findOne`→`findById` en el service dejó el controller llamando al nombre viejo (TS2339) → TS lo detecta (valor de tipado).
+
+### NestJS "standalone" ≠ Angular "standalone" (FALSO AMIGO — duda del estudiante que viene de Angular 20)
+Mismo nombre, concepto TOTALMENTE distinto:
+| | Angular standalone | NestJS standalone |
+|---|---|---|
+| Qué elimina | los `NgModule` (piezas sin módulo, default en Ng20) | el servidor HTTP |
+| Los módulos | DESAPARECEN | SIGUEN obligatorios |
+| Para qué | simplificar árbol de componentes UI | correr Nest sin API web: CRON, CLI, workers (`NestFactory.createApplicationContext`) |
+Conclusión: lo de Angular (componentes sin módulos) NO existe en NestJS. En Nest los `@Module` son el pilar de encapsulación (1.2) y no se van. Por qué difieren: en frontend los NgModules eran ceremonia confusa (Ng los simplifica); en backend los módulos aportan encapsulación real (agrupar features, controlar qué se expone entre capas). Nest se inspiró en Angular pero evolucionaron distinto (backend vs frontend). 📚 NestJS Docs → Standalone applications; Angular Docs → Standalone components.
+
 ### Referencias (2.3)
 - *NestJS Docs → Fundamentals → Custom Providers* (tokens, `useClass`, `@Inject`).
 - *MDN → Symbol* / *TypeScript Handbook → Symbols*.
 - R. C. Martin, *Clean Architecture* — DIP y boundaries (repositorio invertido).
+
+---
+
+## Phase 2 · Lesson 2.4 — Application Layer: Use Cases (teoría previa)
+
+### Qué es un Use Case
+Una clase que representa UNA acción/intención de negocio del usuario: `CreateCardUseCase`, `FindAllCardsUseCase`, `FindCardByIdUseCase`, `UpdateCardUseCase`. Single Responsibility (S de SOLID): orquesta UNA operación. Vive en `src/application/use-cases/`. **Símil .NET: es el Handler de MediatR/CQRS** (`useCase.execute(dto)` ≈ `handler.Handle(command)`).
+
+### Qué SÍ / qué NO hace
+SÍ: recibe DTO, construye/valida entidades de dominio, llama al repo (vía interfaz), aplica reglas de la operación, devuelve la entidad. NO: saber de HTTP (status/req/res), tocar array/DB directo, formatear respuesta HTTP. Conoce al dominio, NO a la infra (Dependency Rule: apunta hacia adentro).
+
+### Todo converge en CreateCardUseCase
+El use case hace lo que en Fase 1 hacía `CardsService.create`, pero en su lugar correcto: (1) el **id nace aquí** (`randomUUID()`, decisión 2.3), (2) la **Card se auto-valida** en su constructor (guards 2.2, always-valid), (3) depende de la **interfaz `CardsRepository`** no de la impl (DIP 2.3), (4) el **mapeo DTO→Card** ocurre aquí. Inyecta el repo vía `@Inject(CARDS_REPOSITORY)` (token, porque la interfaz se borra en runtime).
+
+### Decisión: un archivo por caso de uso (Opción A)
+Elegido `CreateCardUseCase`, `FindAllCardsUseCase`... (1 clase por operación = máx SRP) sobre un `CardsApplicationService` con métodos (Opción B). Contraste: el .NET del estudiante usa handler-por-entidad (`UserHandler` con varios métodos) = más cercano a Opción B. Se elige A para variar/aprender la forma más granular. Ninguna es incorrecta.
+
+### 🔑 ¿Interfaz para el use case? NO (a diferencia del repo) — duda clave del estudiante
+El estudiante (de .NET) inyecta `IHandler` al controller por costumbre, sin saber el porqué. Regla depurada:
+> Una interfaz se justifica por **necesidad de PRODUCCIÓN** (intercambiar impls reales / invertir dependencias entre capas), **NO por testeo**.
+| Motivo | Repositorio | Use Case |
+|---|---|---|
+| ¿Múltiples impls en prod? | Sí (InMemory/Postgres) | No (una sola) |
+| ¿Cruza frontera con DIP? | Sí (dominio↔infra) | No |
+| ¿Poder mockear en test? | (beneficio extra) | Jest ya lo permite SIN interfaz |
+→ **Repo:** interfaz + token + `@Inject`. **Use case:** clase concreta directa (NestJS la resuelve sola, existe en runtime). Interfaz de use case con 1 sola impl = ceremonia (YAGNI).
+
+### 🔑 El mito "interfaz para testear" (cambio de mentalidad vs .NET clásico)
+El argumento histórico "necesito interfaz para mockear" venía de una LIMITACIÓN técnica (Moq clásico requería métodos `virtual` para mockear clases). En **TS/Jest se mockea la clase concreta SIN interfaz**:
+```typescript
+const mockUseCase = { execute: jest.fn().mockReturnValue(cartaPrueba) };
+providers: [{ provide: CreateCardUseCase, useValue: mockUseCase }]  // clase como token, mock como valor
+```
+El único motivo que quedaba para la interfaz del use case (testeo) ya lo cubre el framework → interfaz innecesaria. Lección transversal: **no crees abstracciones solo para testear.**
+
+### Transparencia sobre fuentes (a petición del estudiante — D-001)
+- **OFICIAL** (verificable): que Jest/NestJS mockean clases sin interfaz vía `useValue`/`overrideProvider` → *NestJS Docs → Testing*; *Jest Docs → Mock Functions*. Custom providers → *NestJS Docs → Custom Providers*.
+- **CRITERIO de ingeniería** (síntesis, NO regla oficial de NestJS — Nest no dicta arquitectura): "interfaz solo donde aporta, no para el use case". Respaldo en autores, no en docs de Nest:
+  - **Mark Seemann** — *Dependency Injection Principles, Practices, and Patterns* (2019) + blog.ploeh.dk ("Interfaces are not abstractions", **Reused Abstractions Principle**: una interfaz con 1 sola impl probablemente no debería existir aún). Es del mundo .NET → ideal para el estudiante.
+  - **Vladimir Khorikov** — *Unit Testing Principles, Practices, and Patterns* (2020): contra interfaces de una sola impl y abstracciones solo-para-mockear.
+  - **Martin Fowler** — *"Yagni"*.
+- 🔑 Lección meta: aplicar patrones porque "siempre se hizo así" sin entender el porqué es el anti-patrón real. Cuestionar si cada abstracción "gana su sueldo" en el contexto propio.
+
+### Controller delgado (adaptador HTTP)
+Tras 2.4, el `CardsController` inyecta los use cases (clases DIRECTAS, sin token — son clases concretas que NestJS resuelve solo) y cada endpoint solo delega: `getCards() { return this.findAllCardsUseCase.execute(); }`. Cero lógica de negocio en el controller = adaptador HTTP delgado (traduce request→use case→response). Se añadió `@Patch(':id')` para update. El `CardsService` viejo salió de las dependencias → se elimina.
+
+### 🔑 Constructor Over-Injection y CQRS (dudas del estudiante)
+**Over-injection:** un constructor con MUCHAS dependencias (8-10+) es un code smell = SÍNTOMA de que la clase hace demasiado (viola SRP), no una enfermedad en sí. ⚠️ Pero 4-5 use cases en un controller REST (CRUD) es NORMAL y correcto, NO over-injection. Soluciones cuando SÍ crece: (1) dividir el controller (SRP: `CardsController` + `CardsSearchController`); (2) facade/servicio de aplicación (ojo, puede volver al "service que hace todo"); (3) **patrón mediador** (CommandBus). Regla: ante un constructor gigante, preguntar "¿por qué tantas?" no "¿cómo las escondo?".
+
+**CQRS = Command Query Responsibility Segregation:** separar operaciones que ESCRIBEN (commands: Create/Update/Delete, cambian estado) de las que LEEN (queries: FindAll/FindById, sin efectos secundarios). 🔑 **El estudiante YA hace CQRS ligero sin saberlo** (use cases separados por operación). Tiene DOS niveles: (a) LIGERO = solo organizar código separando lecturas/escrituras (inofensivo, ya lo hace); (b) PESADO = DBs separadas para leer y escribir + Event Sourcing (alta escala, NO lo necesita = sobre-ingeniería). **NO rompe Clean Architecture**: son ejes complementarios — Clean Arch = cómo separas CAPAS; CQRS = cómo organizas use cases DENTRO de application. `@nestjs/cqrs` = el **MediatR de .NET** (CommandBus/QueryBus): el controller inyecta 1 bus en vez de N use cases (`commandBus.execute(new CreateCardCommand(dto))`), las capas quedan intactas. Mapeo .NET: `Command`+`Handler`+`IMediator` ≡ CQRS ligero + bus. **Para este proyecto: NO usar aún (YAGNI)**; reevaluar si Deck hace crecer mucho las operaciones — y le sonará a MediatR. 📚 Fowler "CQRS" (martinfowler.com); Greg Young (origen); *@nestjs/cqrs* docs.
+
+### Referencias (2.4)
+- *NestJS Docs → Testing* / *Custom Providers* / *CQRS* (`@nestjs/cqrs`).
+- Mark Seemann, *DI Principles, Practices, and Patterns* (2019); blog.ploeh.dk.
+- Vladimir Khorikov, *Unit Testing Principles...* (2020).
+- Martin Fowler, *"CQRS"* (martinfowler.com/bliki/CQRS.html); Greg Young (origen del término).

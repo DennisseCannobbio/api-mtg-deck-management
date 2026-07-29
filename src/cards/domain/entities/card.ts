@@ -1,7 +1,7 @@
-import { CardColor } from '@enums/card-color.enum';
-import { CardRarity } from '@enums/card-rarity.enum';
-import { CardSuperType } from '@enums/card-super-type.enum';
-import { CardType } from '@enums/card-type.enum';
+import { CardColor } from '@cards/domain/enums/card-color.enum';
+import { CardRarity } from '@cards/domain/enums/card-rarity.enum';
+import { CardSuperType } from '@cards/domain/enums/card-super-type.enum';
+import { CardType } from '@cards/domain/enums/card-type.enum';
 import { UUID } from 'crypto';
 
 export class Card {
