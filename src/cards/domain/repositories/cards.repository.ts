@@ -1,4 +1,4 @@
-import { Card } from '@domain/entities/card';
+import { Card } from '@cards/domain/entities/card';
 import { UUID } from 'crypto';
 
 export interface CardsRepository {

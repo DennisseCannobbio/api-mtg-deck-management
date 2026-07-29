@@ -16,8 +16,7 @@
     "baseUrl": "./",
     "types": ["node", "jest"],
     "paths": {
-      "@domain/*": ["src/domain/*"],
-      "@enums/*": ["src/enums/*"]
+      "@cards/*": ["src/cards/*"]
     },
     "incremental": true,
     "skipLibCheck": true,

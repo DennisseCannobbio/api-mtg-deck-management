@@ -1,7 +1,7 @@
-import { Card } from '@domain/entities/card';
-import { CardsRepository } from '@domain/repositories/cards.repository';
+import { Card } from '@cards/domain/entities/card';
+import { CardsRepository } from '@cards/domain/repositories/cards.repository';
 import { Injectable } from '@nestjs/common';
-import { randomUUID, UUID } from 'crypto';
+import { UUID } from 'crypto';
 
 @Injectable()
 export class InMemoryCardsRepository implements CardsRepository {
